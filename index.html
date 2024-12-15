@@ -444,9 +444,28 @@
         
         class CelestialBody {
             constructor(x, y, mass, radius) {
+       
                 this.mass = mass;
                 this.radius = radius;
                 this.gForce = 0.05;
+                
+
+                this.coronaRadius = radius * 1.5;
+                this.fieldRadius = radius * 3;
+                
+                this.colors = {
+                    proton: '#B94FFF',
+                    neutron: '#318AFF',
+                    electron: '#FF4980' 
+                };
+                
+                this.recentParticles = {
+                    proton: 0,
+                    neutron: 0,
+                    electron: 0
+                };
+                this.maxTypeCount = 50;
+                
                 this.updatePosition();
             }
         
@@ -459,18 +478,132 @@
                 const screenX = (this.x - cameraX) * zoom + canvasWidth / 2;
                 const screenY = (this.y - cameraY) * zoom + canvasHeight / 2;
         
+                this.drawField(ctx, screenX, screenY, zoom);
+                
+                this.drawCorona(ctx, screenX, screenY, zoom);
+
+                this.drawCore(ctx, screenX, screenY, zoom);
+            }
+        
+            drawField(ctx, x, y, zoom) {
                 const gradient = ctx.createRadialGradient(
-                    screenX, screenY, 0,
-                    screenX, screenY, this.radius * zoom
+                    x, y, this.radius * zoom,
+                    x, y, this.fieldRadius * zoom
                 );
-                gradient.addColorStop(0, 'rgba(255, 165, 0, 1)');
-                gradient.addColorStop(0.3, 'rgba(255, 69, 0, 0.8)');
-                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+
+                const total = Object.values(this.recentParticles).reduce((a, b) => a + b, 0);
+                if (total > 0) {
+                    const alpha = Math.min(0.15, total / (this.maxTypeCount * 3) * 0.15);
+                    gradient.addColorStop(0, `rgba(150, 150, 255, ${alpha})`);
+                    gradient.addColorStop(1, 'rgba(150, 150, 255, 0)');
+                } else {
+                    gradient.addColorStop(0, 'rgba(150, 150, 255, 0.05)');
+                    gradient.addColorStop(1, 'rgba(150, 150, 255, 0)');
+                }
         
                 ctx.beginPath();
-                ctx.arc(screenX, screenY, this.radius * zoom, 0, Math.PI * 2);
+                ctx.arc(x, y, this.fieldRadius * zoom, 0, Math.PI * 2);
                 ctx.fillStyle = gradient;
                 ctx.fill();
+            }
+        
+            drawCorona(ctx, x, y, zoom) {
+                const total = Object.values(this.recentParticles).reduce((a, b) => a + b, 0);
+                const gradient = ctx.createRadialGradient(
+                    x, y, this.radius * zoom,
+                    x, y, this.coronaRadius * zoom
+                );
+                
+                if (total > 0) {
+                    const ratios = {
+                        proton: this.recentParticles.proton / total,
+                        neutron: this.recentParticles.neutron / total,
+                        electron: this.recentParticles.electron / total
+                    };
+        
+                    const intensity = Math.min(0.8, total / (this.maxTypeCount * 3) * 0.8);
+                    
+                    gradient.addColorStop(0, this.blendColors([
+                        { color: this.colors.proton, weight: ratios.proton },
+                        { color: this.colors.neutron, weight: ratios.neutron },
+                        { color: this.colors.electron, weight: ratios.electron }
+                    ], intensity));
+                    
+                    gradient.addColorStop(1, 'rgba(150, 150, 255, 0)');
+                } else {
+                    gradient.addColorStop(0, 'rgba(150, 150, 255, 0.3)');
+                    gradient.addColorStop(1, 'rgba(150, 150, 255, 0)');
+                }
+        
+                ctx.beginPath();
+                ctx.arc(x, y, this.coronaRadius * zoom, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        
+            drawCore(ctx, x, y, zoom) {
+                const gradient = ctx.createRadialGradient(
+                    x, y, 0,
+                    x, y, this.radius * zoom
+                );
+                
+                const total = Object.values(this.recentParticles).reduce((a, b) => a + b, 0);
+                if (total > 0) {
+                    const ratios = {
+                        proton: this.recentParticles.proton / total,
+                        neutron: this.recentParticles.neutron / total,
+                        electron: this.recentParticles.electron / total
+                    };
+        
+                    const coreColor = this.blendColors([
+                        { color: this.colors.proton, weight: ratios.proton },
+                        { color: this.colors.neutron, weight: ratios.neutron },
+                        { color: this.colors.electron, weight: ratios.electron }
+                    ], 1);
+        
+                    gradient.addColorStop(0, coreColor);
+                    gradient.addColorStop(0.6, this.adjustColorBrightness(coreColor, -30));
+                    gradient.addColorStop(1, this.adjustColorBrightness(coreColor, -50));
+                } else {
+                    gradient.addColorStop(0, 'rgba(150, 150, 255, 0.8)');
+                    gradient.addColorStop(1, 'rgba(100, 100, 200, 0.6)');
+                }
+        
+                ctx.beginPath();
+                ctx.arc(x, y, this.radius * zoom, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        
+            blendColors(colors, intensity) {
+                let r = 0, g = 0, b = 0;
+                colors.forEach(({color, weight}) => {
+                    const rgb = this.hexToRgb(color);
+                    r += rgb.r * weight;
+                    g += rgb.g * weight;
+                    b += rgb.b * weight;
+                });
+                return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${intensity})`;
+            }
+        
+            hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : {r: 0, g: 0, b: 0};
+            }
+        
+            adjustColorBrightness(rgba, amount) {
+                const rgbaMatch = rgba.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);
+                if (!rgbaMatch) return rgba;
+                
+                const r = Math.max(0, Math.min(255, parseInt(rgbaMatch[1]) + amount));
+                const g = Math.max(0, Math.min(255, parseInt(rgbaMatch[2]) + amount));
+                const b = Math.max(0, Math.min(255, parseInt(rgbaMatch[3]) + amount));
+                
+                return `rgba(${r}, ${g}, ${b}, ${rgba.split(',')[3]?.trim().slice(0, -1) || '1'})`;
             }
         
             applyGravity(particle) {
@@ -479,21 +612,49 @@
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
                 if (distance < this.radius + particle.radius) {
-                    particle.x = this.x + (particle.x - this.x) * 1.5;
-                    particle.y = this.y + (particle.y - this.y) * 1.5;
-                    particle.dx *= -0.5;
-                    particle.dy *= -0.5;
-                    return;
+                    return this.handleCollision(particle, dx, dy, distance);
                 }
-        
+
+                if (distance < this.fieldRadius) {
+                    this.recentParticles[particle.type] = Math.min(
+                        this.maxTypeCount,
+                        this.recentParticles[particle.type] + 1
+                    );
+                }
+
                 const forceMagnitude = (this.gForce * this.mass) / (distance * distance);
                 const angle = Math.atan2(dy, dx);
                 
                 particle.dx += Math.cos(angle) * forceMagnitude;
                 particle.dy += Math.sin(angle) * forceMagnitude;
+        
+                return true;
+            }
+        
+            handleCollision(particle, dx, dy, distance) {
+                const angle = Math.atan2(dy, dx);
+                const speed = Math.sqrt(particle.dx * particle.dx + particle.dy * particle.dy);
+
+                particle.x = this.x - Math.cos(angle) * (this.radius + particle.radius);
+                particle.y = this.y - Math.sin(angle) * (this.radius + particle.radius);
+
+                const energyLoss = 0.5;
+                particle.dx = Math.cos(angle) * speed * -energyLoss;
+                particle.dy = Math.sin(angle) * speed * -energyLoss;
+
+                const scatter = 0.2;
+                particle.dx += (Math.random() - 0.5) * scatter;
+                particle.dy += (Math.random() - 0.5) * scatter;
+                
+                return true;
+            }
+        
+            update() {
+                Object.keys(this.recentParticles).forEach(type => {
+                    this.recentParticles[type] *= 0.95;
+                });
             }
         }
-        
         class Particle {
             constructor(type, x, y) {
                 this.type = type;
